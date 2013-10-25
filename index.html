@@ -1,0 +1,222 @@
+<!doctype html>
+<html>
+
+	<head>
+		<meta charset="utf-8">
+		<link href="js/jquery-ui-1.10.3.custom/css/ui-lightness/jquery-ui-1.10.3.custom.css" rel="stylesheet">
+		<script src="js/jquery-ui-1.10.3.custom/js/jquery-1.9.1.js"></script>
+		<script src="js/jquery-ui-1.10.3.custom/js/jquery-ui-1.10.3.custom.js"></script>
+		<script src="js/whammy.js"></script>
+		<link href="css/style.css" rel="stylesheet">
+	</head>
+	<body>
+		<div class="content" id="log">
+			<h3>LOG</h3>
+			<p></p>
+			<img id="logimg">
+		</div>
+
+		<div class="content" id="video_creating_from_camera">
+			<h3>Video from Camera</h3>
+			<!--<canvas id="video_creating_canvas"></canvas>-->
+			  <video autoplay="" src="" width="320" height="240"></video>
+
+			  <input type="button" name="Go" value="Go">
+		</div>
+
+		<div class="content" id="video_editing">
+			<h3>Video Trimming</h3>
+			<canvas id="video_editing_canvas" width="320" height="240"></canvas>
+			<div id="slider"></div>
+			<input type="button" name="Play" value="Play">
+			<input type="button" name="Download" value="Download">
+		</div>
+
+		<div style="clear:both;"></div>
+	</body>
+	<script>
+	function lerp(from,to,damp,bound){
+		if(bound)damp=Math.min(1,Math.max(0,damp));
+		return from+(to-from)*damp;
+	}
+	function clamp(val,min,max){
+		return Math.min(max,Math.max(val,min));
+	}
+
+	$(document).ready(function(){
+		var rafId;
+		var offscreencanvas = document.createElement('canvas'); 
+		var createvideo = $("video")[0];
+		var VideoData = function(){
+			this.startTime = 0;
+			this.endTime = 0;
+			this.duration = 0;
+			this.frames = [];
+			this.times = [];
+			this.url = "";
+			this.push=function(frame, time){
+				this.frames.push(frame);
+				this.times.push(time);
+				if(this.times.length)
+					this.duration=this.times[this.times.length-1]-this.startTime;
+				else
+					this.duration=0;
+			};
+			this.init=function(){
+				this.startTime=this.endTime=0;
+				this.frames=[];
+				this.times=[];
+				this.duration=0;
+				this.url="";
+			};
+			return this;
+		};
+		var videodata = VideoData();
+		var downloadvideourl;
+		offscreencanvas.width=createvideo.width;
+		offscreencanvas.height=createvideo.height;
+
+
+		var slider=$("#slider");
+		var debuglog = $("#log p");
+
+
+		window.URL = window.URL || window.webkitURL;
+
+		window.requestAnimationFrame = window.requestAnimationFrame ||
+		    window.webkitRequestAnimationFrame || window.mozRequestAnimationFrame ||
+		    window.msRequestAnimationFrame || window.oRequestAnimationFrame;
+
+		window.cancelAnimationFrame = window.cancelAnimationFrame ||
+		    window.webkitCancelAnimationFrame || window.mozCancelAnimationFrame ||
+		    window.msCancelAnimationFrame || window.oCancelAnimationFrame;
+
+		navigator.getUserMedia = navigator.getUserMedia ||
+	    navigator.webkitGetUserMedia || navigator.mozGetUserMedia ||
+	    navigator.msGetUserMedia;
+
+		$("input[type=button]").button();
+		slider.slider({
+			range: true,
+			values: [ 0, 100 ],
+			slide: function( event, ui ) {
+				drawEditingFrame(getFrameIndexFromSliderValue(ui.value));
+			}
+		});
+
+	    $("#video_creating_from_camera input[name=Go]").click(onCreateCameraBtnClick);
+		$("#video_editing input[name=Download]").click(downloadVideo);
+		$("#video_editing input[name=Play]").click(playEditing);
+
+		function onCreateCameraBtnClick(){
+			if($(this).attr("value")=="Go") {
+				$(this).attr("value","Stop");
+				startCamera();
+			}else{
+				$(this).attr("value","Go");
+				stopCamera();
+			}
+		}
+
+	    function startCamera() {
+		  navigator.getUserMedia({video: true, audio: false}, function(stream) {
+		  	console.log("startCamera@successed");
+		    createvideo.src = window.URL.createObjectURL(stream);
+		    
+		    startRecord();
+		  }, function(e) {
+		    	console.log("startCamera@failed");
+		  });
+	    }
+
+	    function stopCamera() {
+  			window.cancelAnimationFrame(rafId);
+			videodata.endTime = Date.now();
+			createvideo.src="";
+		};
+
+	    function startRecord(){
+	    	videodata.init();
+	    	videodata.startTime=Date.now();
+			var ctx = offscreencanvas.getContext('2d');
+			var CANVAS_HEIGHT = offscreencanvas.height;
+			var CANVAS_WIDTH = offscreencanvas.width;
+
+			logRecord();
+			  function recordVideoFrame_(time) {
+			    rafId = window.requestAnimationFrame(recordVideoFrame_);
+			    ctx.drawImage(createvideo, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+			    var url = offscreencanvas.toDataURL('image/webp', 1);
+			    videodata.push(url, Date.now());
+
+			    logRecord();
+			  };
+			  rafId = window.requestAnimationFrame(recordVideoFrame_);
+	    }
+
+	    function logRecord(){
+	    	debuglog.html( 
+	    	"videodata.frames.length = " + videodata.frames.length + "<br>" +
+	    	"videodata.duration = " + videodata.duration/1000.0
+	    	);
+	    }
+	    function playEditing(){
+			if($(this).attr("value")=="Play") {
+				$(this).attr("value","Stop");
+			}else{
+				$(this).attr("value","Play");
+			}
+	    }
+
+	    function drawEditingFrame(ind) {
+	    	var canvas = $("#video_editing canvas")[0];
+	    	var ctx = canvas.getContext("2d");
+			var CANVAS_HEIGHT = canvas.height;
+			var CANVAS_WIDTH = canvas.width;
+			
+	    	
+			var image = new Image();
+			image.onload = function() {
+		    	ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+		    	ctx.drawImage(image, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+	    	};
+
+	    	image.src = videodata.frames[ind];
+	    }
+	    function getFrameIndexFromSliderValue(val){
+	    	return Math.floor(lerp(1,videodata.frames.length-1,val/100.0));
+	    }
+	    function downloadVideo() {
+	    	var compilestarttime=Date.now();
+
+	    	var newvideodata = VideoData();
+	    	var slidervalues = slider.slider( "option", "values" );
+	    	fromind = getFrameIndexFromSliderValue(slidervalues[0]);
+	    	toind = getFrameIndexFromSliderValue(slidervalues[1]);
+
+	    	newvideodata.frames = videodata.frames.slice(fromind, toind+1);
+	    	newvideodata.times = videodata.times.slice(fromind, toind+1);
+	    	newvideodata.startTime = newvideodata.times[0];
+	    	newvideodata.endTime = newvideodata.times[newvideodata.times.length-1];
+	    	newvideodata.duration = newvideodata.endTime-newvideodata.startTime;
+
+			var webmBlob = Whammy.fromImageArray(newvideodata.frames, newvideodata.duration / newvideodata.frames.length);
+			newvideodata.url = window.URL.createObjectURL(webmBlob);
+
+			var compileendtime=Date.now();
+
+	    	
+	    	debuglog.html( 
+	    	"newvideodata.frames.length = " + newvideodata.frames.length + "<br>" +
+	    	"newvideodata.duration = " + newvideodata.duration/1000.0
+	    	);
+
+	    }
+
+
+
+			
+	});
+
+	</script>
+</html>

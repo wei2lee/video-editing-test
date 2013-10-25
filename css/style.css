@@ -1,0 +1,40 @@
+.content{
+	min-width:200px;
+	max-width:320px;
+	padding:0px 20px 10px 20px;
+	background-color:#dddddd;
+	border-radius:15px;
+	text-align:center;
+	box-sizing:content-box;
+	border:solid 1px #cccccc;
+	margin:15px;
+
+	float:left;
+}
+#log{
+	float:none;
+	min-width:400px;
+	max-width:640px;
+	min-height:200px;
+}
+
+html{
+	font-family:Arial;
+	text-shadow: 1px 1px #fff;
+	color:#444;
+}
+
+input[type=button] {
+	width:120px;
+	height:40px;
+	margin:8px 0 0 0;
+}
+
+video {
+	border:solid 1px #ccc;
+	margin:0 0 8px 0;
+}
+canvas {
+	border:solid 1px #ccc;
+	margin:0 0 8px 0;
+}
