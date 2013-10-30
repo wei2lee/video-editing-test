@@ -7,29 +7,22 @@
 		<script src="js/jquery-ui-1.10.3.custom/js/jquery-1.9.1.js"></script>
 		<script src="js/jquery-ui-1.10.3.custom/js/jquery-ui-1.10.3.custom.js"></script>
 		<script src="js/whammy.js"></script>
+		<script src="js/jsmpeg/jsmpg.js"></script>
 		<link href="css/style.css" rel="stylesheet">
 	</head>
 	<body>
-		<div class="content" id="log">
-			<h3>LOG</h3>
-			<p></p>
-			<img id="logimg">
-		</div>
-
-		<div class="content" id="video_creating_from_camera">
-			<h3>Video from Camera</h3>
-			<!--<canvas id="video_creating_canvas"></canvas>-->
-			  <video autoplay="" src="" width="320" height="240"></video>
-
-			  <input type="button" name="Go" value="Go">
-		</div>
-
 		<div class="content" id="video_editing">
-			<h3>Video Trimming</h3>
-			<canvas id="video_editing_canvas" width="320" height="240"></canvas>
+			<div class="dropfile">
+				<div>
+					<p>Drop .mp4 here</p>
+				</div>
+			</div>
+			<canvas id="video_editing_canvas" width="320" height="240">
+			</canvas>
+			<video autoplay="" src="" width="320" height="240"></video>
 			<div id="slider"></div>
-			<input type="button" name="Play" value="Play">
-			<input type="button" name="Download" value="Download">
+			<input type="button" name="ToggleRecord" value="Start">
+			<a class="download" href="" target="_blank">Download</a>
 		</div>
 
 		<div style="clear:both;"></div>
@@ -44,45 +37,49 @@
 	}
 
 	$(document).ready(function(){
-		var rafId;
-		var offscreencanvas = document.createElement('canvas'); 
-		var createvideo = $("video")[0];
-		var VideoData = function(){
+		function VideoData(){
+			this.sessionStartTime=0;
 			this.startTime = 0;
 			this.endTime = 0;
 			this.duration = 0;
 			this.frames = [];
 			this.times = [];
 			this.url = "";
+			this.isFirstSession = 1;
+			this.getFrameIndexFromTime=function(time){
+				var ind = 0;
+				var i=0;
+				for(i=0;i<this.times.length;i++) {
+					if(this.times[i] >= time) {
+						return ind;
+					}
+					ind++;
+				}
+				return this.times.length-1;
+			}
 			this.push=function(frame, time){
 				this.frames.push(frame);
 				this.times.push(time);
 				if(this.times.length)
-					this.duration=this.times[this.times.length-1]-this.startTime;
+					this.duration=this.times[this.times.length-1];
 				else
 					this.duration=0;
 			};
-			this.init=function(){
-				this.startTime=this.endTime=0;
-				this.frames=[];
-				this.times=[];
-				this.duration=0;
-				this.url="";
+			this.newSession=function(){
+				this.sessionStartTime=Date.now();
+				if(this.isFirstSession) {
+		    		this.endTime=this.startTime=Date.now();
+					this.frames=[];
+					this.times=[];
+					this.duration=0;
+					this.url="";
+					this.isFirstSession=0;
+				}
 			};
 			return this;
 		};
-		var videodata = VideoData();
-		var downloadvideourl;
-		offscreencanvas.width=createvideo.width;
-		offscreencanvas.height=createvideo.height;
-
-
-		var slider=$("#slider");
-		var debuglog = $("#log p");
-
 
 		window.URL = window.URL || window.webkitURL;
-
 		window.requestAnimationFrame = window.requestAnimationFrame ||
 		    window.webkitRequestAnimationFrame || window.mozRequestAnimationFrame ||
 		    window.msRequestAnimationFrame || window.oRequestAnimationFrame;
@@ -91,37 +88,68 @@
 		    window.webkitCancelAnimationFrame || window.mozCancelAnimationFrame ||
 		    window.msCancelAnimationFrame || window.oCancelAnimationFrame;
 
+		window.requestFileSystem  = window.requestFileSystem || window.webkitRequestFileSystem;
+
 		navigator.getUserMedia = navigator.getUserMedia ||
 	    navigator.webkitGetUserMedia || navigator.mozGetUserMedia ||
 	    navigator.msGetUserMedia;
 
-		$("input[type=button]").button();
-		slider.slider({
+		var rafId;
+		var offscreencanvas = document.createElement('canvas'); 
+		var offscreenctx = offscreencanvas.getContext('2d');
+		var cameravideo = $("#video_editing video")[0];
+    	var canvas = $("#video_editing canvas")[0];
+    	var ctx = canvas.getContext("2d");
+		var videodata = new VideoData();
+
+		canvas.width=offscreencanvas.width=cameravideo.width;
+		canvas.height=offscreencanvas.height=cameravideo.height;
+
+		var slider=$("#slider").slider({
 			range: true,
-			values: [ 0, 100 ],
+			values: [ 0, 0 ],
+			min:0,
+			max:40,
+			step:0.1,
 			slide: function( event, ui ) {
-				drawEditingFrame(getFrameIndexFromSliderValue(ui.value));
+				var find = videodata.getFrameIndexFromTime(ui.value*1000.0);
+				drawFrame(videodata, videodata.getFrameIndexFromTime(ui.value*1000.0));
 			}
 		});
+		slider.slider("disable");
 
-	    $("#video_creating_from_camera input[name=Go]").click(onCreateCameraBtnClick);
-		$("#video_editing input[name=Download]").click(downloadVideo);
-		$("#video_editing input[name=Play]").click(playEditing);
+		$("input[type=button]").button();
 
-		function onCreateCameraBtnClick(){
-			if($(this).attr("value")=="Go") {
+		var toggleRecordBtn = $("#video_editing input[name=ToggleRecord]").button("enable");
+	    toggleRecordBtn.click(toggleRecord);
+
+		var downloadBtn = $("a").button();
+		downloadBtn.button("disable");
+		downloadBtn.click(downloadVideo);
+
+		var dropfile = $(".dropfile");
+		dropfile.click(selectfile);
+
+		function toggleRecord(){
+			if($(this).attr("value")=="Start") {
 				$(this).attr("value","Stop");
 				startCamera();
+
+				downloadBtn.button( "disable" );
+				slider.slider("disable");
 			}else{
-				$(this).attr("value","Go");
+				$(this).attr("value","Start");
 				stopCamera();
+
+				downloadBtn.button( "enable" );
+				slider.slider("enable");
 			}
 		}
 
 	    function startCamera() {
 		  navigator.getUserMedia({video: true, audio: false}, function(stream) {
 		  	console.log("startCamera@successed");
-		    createvideo.src = window.URL.createObjectURL(stream);
+		    cameravideo.src = window.URL.createObjectURL(stream);
 		    
 		    startRecord();
 		  }, function(e) {
@@ -132,67 +160,51 @@
 	    function stopCamera() {
   			window.cancelAnimationFrame(rafId);
 			videodata.endTime = Date.now();
-			createvideo.src="";
+			cameravideo.src="";
 		};
 
 	    function startRecord(){
-	    	videodata.init();
-	    	videodata.startTime=Date.now();
-			var ctx = offscreencanvas.getContext('2d');
-			var CANVAS_HEIGHT = offscreencanvas.height;
-			var CANVAS_WIDTH = offscreencanvas.width;
-
+	    	videodata.newSession();
 			logRecord();
-			  function recordVideoFrame_(time) {
-			    rafId = window.requestAnimationFrame(recordVideoFrame_);
-			    ctx.drawImage(createvideo, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-			    var url = offscreencanvas.toDataURL('image/webp', 1);
-			    videodata.push(url, Date.now());
-
-			    logRecord();
-			  };
-			  rafId = window.requestAnimationFrame(recordVideoFrame_);
+			rafId = window.requestAnimationFrame(record);
 	    }
+	    function record(time){
+		    rafId = window.requestAnimationFrame(record);
+		    offscreenctx.drawImage(cameravideo, 0, 0, offscreencanvas.width, offscreencanvas.height);
+		    var url = offscreencanvas.toDataURL('image/webp', 1);
+		    videodata.push(url, Date.now()-videodata.sessionStartTime);
+		    logRecord();
+		    drawFrame(videodata, videodata.frames.length-1);
 
+		    slider.slider("values", 1, videodata.duration/1000.0);
+	    }
 	    function logRecord(){
-	    	debuglog.html( 
-	    	"videodata.frames.length = " + videodata.frames.length + "<br>" +
-	    	"videodata.duration = " + videodata.duration/1000.0
-	    	);
-	    }
-	    function playEditing(){
-			if($(this).attr("value")=="Play") {
-				$(this).attr("value","Stop");
-			}else{
-				$(this).attr("value","Play");
-			}
 	    }
 
-	    function drawEditingFrame(ind) {
-	    	var canvas = $("#video_editing canvas")[0];
-	    	var ctx = canvas.getContext("2d");
-			var CANVAS_HEIGHT = canvas.height;
-			var CANVAS_WIDTH = canvas.width;
-			
-	    	
-			var image = new Image();
-			image.onload = function() {
-		    	ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-		    	ctx.drawImage(image, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-	    	};
-
-	    	image.src = videodata.frames[ind];
+	    function drawFrame(vd, ind) {
+	    	if(ind<0||ind>vd.frames.length-1){
+	    		ctx.clearRect(0, 0, canvas.width, canvas.height);
+	    	}else{
+				var image = new Image();
+				image.onload = function() {
+			    	ctx.clearRect(0, 0, canvas.width, canvas.height);
+			    	ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+		    	};
+		    	image.src = vd.frames[ind];
+	    	}
 	    }
+
 	    function getFrameIndexFromSliderValue(val){
 	    	return Math.floor(lerp(1,videodata.frames.length-1,val/100.0));
 	    }
+
 	    function downloadVideo() {
 	    	var compilestarttime=Date.now();
 
-	    	var newvideodata = VideoData();
+	    	var newvideodata = new VideoData();
 	    	var slidervalues = slider.slider( "option", "values" );
-	    	fromind = getFrameIndexFromSliderValue(slidervalues[0]);
-	    	toind = getFrameIndexFromSliderValue(slidervalues[1]);
+	    	fromind = videodata.getFrameIndexFromTime(slidervalues[0]*1000.0);
+	    	toind = videodata.getFrameIndexFromTime(slidervalues[1]*1000.0);
 
 	    	newvideodata.frames = videodata.frames.slice(fromind, toind+1);
 	    	newvideodata.times = videodata.times.slice(fromind, toind+1);
@@ -200,23 +212,26 @@
 	    	newvideodata.endTime = newvideodata.times[newvideodata.times.length-1];
 	    	newvideodata.duration = newvideodata.endTime-newvideodata.startTime;
 
-			var webmBlob = Whammy.fromImageArray(newvideodata.frames, newvideodata.duration / newvideodata.frames.length);
-			newvideodata.url = window.URL.createObjectURL(webmBlob);
-
+			var webmBlob = Whammy.fromImageArray(newvideodata.frames, newvideodata.frames.length / (newvideodata.duration  / 1000.0));
+			/*
+			newvideodata.frames.forEach(function(element){
+				var body=$("body");
+				var img=$("<img />").attr("src", element);
+				body.append(img);
+			});//*/
+			videourl= window.URL.createObjectURL(webmBlob);
 			var compileendtime=Date.now();
-
-	    	
-	    	debuglog.html( 
-	    	"newvideodata.frames.length = " + newvideodata.frames.length + "<br>" +
-	    	"newvideodata.duration = " + newvideodata.duration/1000.0
-	    	);
-
+			downloadBtn.attr("href", videourl);
+	    }
+	    function selectfile(){
+			window.requestFileSystem(window.TEMPORARY, 5*1024*1024 /*5MB*/, openfile, null);
+	    }
+	    function openfile(fs){
+		  console.log('Opened file system: ' + fs.name);
 	    }
 
 
 
-			
 	});
-
 	</script>
 </html>
